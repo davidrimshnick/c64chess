@@ -13,6 +13,10 @@
 #endif
 
 #ifndef TARGET_C64
+extern FILE *dbg_file;
+#endif
+
+#ifndef TARGET_C64
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -81,19 +85,20 @@ static s16 quiescence(s16 alpha, s16 beta, u8 ply) {
     base_idx = g_state.move_buf_idx[ply];
 
     for (i = 0; i < num_moves; i++) {
+        s16 score;
+        Move saved_move;
         movesort_pick_best(ply, i, num_moves);
 
-        if (!board_make_move(g_state.move_buf[base_idx + i])) continue;
+        saved_move = g_state.move_buf[base_idx + i];
+        if (!board_make_move(saved_move)) continue;
 
-        {
-            s16 score = -quiescence(-beta, -alpha, ply + 1);
-            board_unmake_move(g_state.move_buf[base_idx + i]);
+        score = -quiescence(-beta, -alpha, ply + 1);
+        board_unmake_move(saved_move);
 
-            if (g_search_info.stopped) return 0;
-            if (score > alpha) {
-                alpha = score;
-                if (score >= beta) return beta;
-            }
+        if (g_search_info.stopped) return 0;
+        if (score > alpha) {
+            alpha = score;
+            if (score >= beta) return beta;
         }
     }
 
@@ -170,7 +175,12 @@ static s16 negamax(s16 alpha, s16 beta, u8 depth, u8 ply, u8 do_null) {
     if (do_null && !in_check && depth >= 4 && !eval_is_endgame()) {
         u8 R = 3; /* reduction */
         if (depth > 6) R = 4;
-        /* Ensure depth - 1 - R doesn't underflow (u8) */
+
+        /* Set move_buf_idx for ply+1 BEFORE null move search.
+         * movegen_generate(ply) hasn't been called yet, so move_buf_idx[ply+1]
+         * may contain a stale value from a different branch that points into
+         * an ancestor ply's buffer space, corrupting their moves. */
+        g_state.move_buf_idx[ply + 1] = g_state.move_buf_idx[ply];
 
         board_make_null();
         score = -negamax(-beta, -beta + 1, (u8)(depth - 1 - R), ply + 1, 0);
@@ -191,16 +201,18 @@ static s16 negamax(s16 alpha, s16 beta, u8 depth, u8 ply, u8 do_null) {
 
     /* Search all moves */
     for (i = 0; i < num_moves; i++) {
+        Move saved_move;
         movesort_pick_best(ply, i, num_moves);
 
-        if (!board_make_move(g_state.move_buf[base_idx + i])) continue;
+        saved_move = g_state.move_buf[base_idx + i];
+        if (!board_make_move(saved_move)) continue;
         legal_moves++;
 
         /* Late Move Reductions (LMR):
          * After searching a few moves fully, reduce depth for later quiet moves.
          * They're unlikely to be best. If reduced search surprises us, re-search. */
         if (legal_moves > 4 && depth >= 3 && !in_check &&
-            !(g_state.move_buf[base_idx + i].flags & (MF_CAPTURE | MF_PROMO))) {
+            !(saved_move.flags & (MF_CAPTURE | MF_PROMO))) {
             /* Reduced depth search */
             score = -negamax(-alpha - 1, -alpha, depth - 2, ply + 1, 1);
             if (score > alpha) {
@@ -211,20 +223,20 @@ static s16 negamax(s16 alpha, s16 beta, u8 depth, u8 ply, u8 do_null) {
             score = -negamax(-beta, -alpha, depth - 1, ply + 1, 1);
         }
 
-        board_unmake_move(g_state.move_buf[base_idx + i]);
+        board_unmake_move(saved_move);
 
         if (g_search_info.stopped) return 0;
 
         if (score > best_score) {
             best_score = score;
-            best_move = g_state.move_buf[base_idx + i];
+            best_move = saved_move;
 
             if (score > alpha) {
                 alpha = score;
                 tt_flag = TT_FLAG_EXACT;
 
                 /* Update PV */
-                pv_table[ply][ply] = g_state.move_buf[base_idx + i];
+                pv_table[ply][ply] = saved_move;
                 {
                     u8 j;
                     for (j = ply + 1; j < pv_length[ply + 1]; j++) {
@@ -235,7 +247,7 @@ static s16 negamax(s16 alpha, s16 beta, u8 depth, u8 ply, u8 do_null) {
 
                 if (score >= beta) {
                     /* Beta cutoff - update killers */
-                    movesort_update_killers(ply, g_state.move_buf[base_idx + i]);
+                    movesort_update_killers(ply, saved_move);
                     tt_store(g_state.hash, depth, beta, TT_FLAG_BETA,
                              best_move, ply);
                     return beta;
@@ -292,13 +304,31 @@ SearchResult search_position(u8 max_depth, u32 max_time_ms) {
 
     movesort_clear_killers();
 
-    /* Iterative deepening */
+    /* Iterative deepening with aspiration windows */
     for (depth = 1; depth <= max_depth; depth++) {
+        s16 alpha_w, beta_w;
         pv_length[0] = 0;
 
-        score = negamax(-SCORE_INFINITY, SCORE_INFINITY, depth, 0, 1);
+        /* Use aspiration window after depth 4 */
+        if (depth >= 5 && !IS_MATE_SCORE(result.score)) {
+            s16 window = 50;
+            alpha_w = result.score - window;
+            beta_w = result.score + window;
 
-        if (g_search_info.stopped) break;
+            score = negamax(alpha_w, beta_w, depth, 0, 1);
+
+            if (g_search_info.stopped) break;
+
+            /* If score fell outside window, re-search with full window */
+            if (score <= alpha_w || score >= beta_w) {
+                pv_length[0] = 0;
+                score = negamax(-SCORE_INFINITY, SCORE_INFINITY, depth, 0, 1);
+                if (g_search_info.stopped) break;
+            }
+        } else {
+            score = negamax(-SCORE_INFINITY, SCORE_INFINITY, depth, 0, 1);
+            if (g_search_info.stopped) break;
+        }
 
         /* Save results from this completed iteration */
         if (pv_length[0] > 0) {

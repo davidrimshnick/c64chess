@@ -32,7 +32,7 @@ u8 board_in_check(void);
 u8 board_is_repetition(void);
 
 /* Compute Zobrist hash from scratch (for verification) */
-u16 board_compute_hash(void);
+HashKey board_compute_hash(void);
 
 /* Print board to stdout (for debugging on PC) */
 void board_print(void);

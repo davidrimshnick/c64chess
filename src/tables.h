@@ -29,11 +29,18 @@ extern const s8 pst_king_eg[64];   /* endgame king table */
 /* Array of PST pointers indexed by piece type (0=NULL, 1=pawn, ..., 6=king_mg) */
 extern const s8 *pst_table[7];
 
-/* Zobrist random numbers */
+/* Zobrist random numbers - 16-bit on C64, 32-bit on PC */
+#ifdef TARGET_C64
 extern const u16 zobrist_pieces[2][7][128];  /* [color][piece_type][sq88] */
 extern const u16 zobrist_side;               /* XOR when black to move */
 extern const u16 zobrist_castle[16];         /* indexed by castle rights */
 extern const u16 zobrist_ep[8];              /* indexed by file */
+#else
+extern const u32 zobrist_pieces[2][7][128];
+extern const u32 zobrist_side;
+extern const u32 zobrist_castle[16];
+extern const u32 zobrist_ep[8];
+#endif
 
 /* MVV-LVA table: [victim_type][attacker_type] -> score */
 extern const u8 mvv_lva[7][7];

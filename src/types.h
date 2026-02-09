@@ -24,6 +24,7 @@
   typedef signed int     s16;
   typedef unsigned long  u32;
   typedef signed long    s32;
+  typedef u16 HashKey;     /* 16-bit hash on C64 (fast on 6502) */
 #else
   #include <stdint.h>
   typedef uint8_t   u8;
@@ -32,6 +33,7 @@
   typedef int16_t   s16;
   typedef uint32_t  u32;
   typedef int32_t   s32;
+  typedef u32 HashKey;     /* 32-bit hash on PC (far fewer collisions) */
 #endif
 
 /* Boolean */
@@ -167,7 +169,7 @@ typedef struct {
     u8  castle_rights; /* castling rights before move */
     u8  ep_square;     /* en passant square before move */
     u8  fifty_clock;   /* fifty-move counter before move */
-    u16 hash;          /* Zobrist hash before move */
+    HashKey hash;      /* Zobrist hash before move */
     s16 material[2];   /* material scores before move */
     s16 pst_score[2];  /* piece-square scores before move */
 } Undo;
@@ -184,7 +186,13 @@ typedef struct {
     u8  depth;     /* search depth (lower 6 bits) + flag (upper 2 bits) */
 } TTEntry;
 
-#define TT_SIZE 512     /* number of entries (4KB total) */
+#ifdef TARGET_C64
+#define TT_SIZE 512        /* 4KB on C64 */
+#define TT_KEY(h) ((u16)(h))
+#else
+#define TT_SIZE 65536      /* 512KB on PC - ample room */
+#define TT_KEY(h) ((u16)((h) >> 16))
+#endif
 
 /* Flat move buffer - shared across all plies */
 #define MOVE_BUF_SIZE 4096
@@ -197,7 +205,7 @@ typedef struct {
     u8  ep_square;        /* en passant target square (SQ_NONE if none) */
     u8  fifty_clock;      /* fifty-move rule counter */
     u16 ply;              /* half-move clock (total) */
-    u16 hash;             /* 16-bit Zobrist hash */
+    HashKey hash;          /* Zobrist hash (16-bit C64, 32-bit PC) */
     u8  king_sq[2];       /* king squares [WHITE/BLACK] */
     s16 material[2];      /* material score [WHITE/BLACK] */
     s16 pst_score[2];     /* piece-square table score [WHITE/BLACK] */
@@ -211,7 +219,7 @@ typedef struct {
     u16  move_buf_idx[MAX_PLY + 1]; /* start index for each ply */
 
     /* History for repetition detection */
-    u16 hash_history[MAX_GAME_MOVES];
+    HashKey hash_history[MAX_GAME_MOVES];
     u16 hash_hist_count;
 } GameState;
 

@@ -561,7 +561,7 @@ u8 board_in_check(void) {
 u8 board_is_repetition(void) {
     u16 i;
     u8 count = 0;
-    u16 current_hash = g_state.hash;
+    HashKey current_hash = g_state.hash;
 
     /* Only check back to last irreversible move (fifty_clock positions) */
     if (g_state.hash_hist_count < 4) return 0;
@@ -575,8 +575,8 @@ u8 board_is_repetition(void) {
     return 0;
 }
 
-u16 board_compute_hash(void) {
-    u16 hash = 0;
+HashKey board_compute_hash(void) {
+    HashKey hash = 0;
     u8 sq, piece, color, pt;
 
     for (sq = 0; sq < 128; sq++) {
@@ -642,6 +642,6 @@ void board_print(void) {
         printf("%c%c", file_to_char(SQ_FILE(g_state.ep_square)),
                        rank_to_char(SQ_RANK(g_state.ep_square)));
     }
-    printf("  Hash: %04X\n\n", g_state.hash);
+    printf("  Hash: %08lX\n\n", (unsigned long)g_state.hash);
 }
 #endif

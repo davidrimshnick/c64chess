@@ -14,6 +14,18 @@
 static const char *ENGINE_NAME = "C64Chess 1.0";
 static const char *ENGINE_AUTHOR = "David";
 
+FILE *dbg_file = NULL;
+static void dbg_open(void) {
+    if (!dbg_file) dbg_file = fopen("C:\\Users\\david\\source\\repos\\c64chess\\build\\debug.log", "a");
+}
+static void dbg_board(const char *label) {
+    char fen[128];
+    if (!dbg_file) return;
+    board_get_fen(fen);
+    fprintf(dbg_file, "%s: %s\n", label, fen);
+    fflush(dbg_file);
+}
+
 u8 uci_parse_move(const char *str, Move *m) {
     u8 from, to;
     u16 num_moves, base_idx, i;
@@ -97,6 +109,8 @@ static void uci_cmd_position(const char *line) {
         }
     }
 
+    dbg_open();
+
     /* Parse moves if present */
     while (*p == ' ') p++;
     if (strncmp(p, "moves", 5) == 0) {
@@ -106,13 +120,50 @@ static void uci_cmd_position(const char *line) {
             if (*p == '\0') break;
 
             if (uci_parse_move(p, &m)) {
-                board_make_move(m);
+                if (!board_make_move(m)) {
+                    /* Move was pseudo-legal but left king in check.
+                     * Force it through by trying all matching moves */
+                    u16 nm2, bi2, vi2;
+                    u8 applied = 0;
+                    g_state.move_buf_idx[0] = 0;
+                    nm2 = movegen_generate(0);
+                    bi2 = g_state.move_buf_idx[0];
+                    for (vi2 = 0; vi2 < nm2; vi2++) {
+                        Move *mv2 = &g_state.move_buf[bi2 + vi2];
+                        if (mv2->from == m.from && mv2->to == m.to) {
+                            if (board_make_move(*mv2)) { applied = 1; break; }
+                        }
+                    }
+                    if (!applied) {
+                        if (dbg_file) {
+                            char fen[128];
+                            board_get_fen(fen);
+                            fprintf(dbg_file, "DESYNC_MAKE: from=%02x to=%02x fen=%s\n",
+                                    m.from, m.to, fen);
+                            fflush(dbg_file);
+                        }
+                    }
+                }
+            } else {
+                char token[8];
+                u8 ti = 0;
+                const char *tp = p;
+                while (*tp && *tp != ' ' && ti < 7) { token[ti++] = *tp++; }
+                token[ti] = '\0';
+                if (dbg_file) {
+                    char fen[128];
+                    board_get_fen(fen);
+                    fprintf(dbg_file, "DESYNC_PARSE: move=%s fen=%s\n", token, fen);
+                    fflush(dbg_file);
+                }
             }
 
             /* Skip this move token */
             while (*p && *p != ' ') p++;
         }
     }
+
+    dbg_board("POSITION_FINAL");
 }
 
 static void uci_cmd_go(const char *line) {
@@ -167,28 +218,85 @@ static void uci_cmd_go(const char *line) {
     if (movetime > 0) {
         max_time = movetime;
     } else if (wtime >= 0 || btime >= 0) {
-        /* Simple time management: use 1/30th of remaining time + increment */
+        /* Time management: use 1/20th of remaining time + most of increment */
         s32 our_time = (g_state.side == WHITE) ? wtime : btime;
         s32 our_inc = (g_state.side == WHITE) ? winc : binc;
         if (our_time > 0) {
-            max_time = (u32)(our_time / 30 + our_inc / 2);
-            if (max_time > (u32)our_time - 100) {
-                max_time = (u32)(our_time > 200 ? our_time - 100 : 100);
+            max_time = (u32)(our_time / 20 + our_inc * 3 / 4);
+            if (max_time > (u32)our_time - 50) {
+                max_time = (u32)(our_time > 100 ? our_time - 50 : 50);
             }
         } else {
             max_time = 1000; /* fallback */
         }
     }
 
-    /* Run search */
+    dbg_open();
     result = search_position(max_depth, max_time);
 
-    /* Output best move */
+    /* Verify bestmove is legal before outputting */
     if (result.best_move.from == 0 && result.best_move.to == 0) {
+        dbg_board("BESTMOVE_0000");
         printf("bestmove 0000\n");
     } else {
-        uci_format_move(result.best_move, move_str);
-        printf("bestmove %s\n", move_str);
+        /* Verify legality: generate all moves and check the bestmove matches one */
+        u16 nm, bi, vi;
+        u8 verified = 0;
+        g_state.move_buf_idx[0] = 0;
+        nm = movegen_generate(0);
+        bi = g_state.move_buf_idx[0];
+        for (vi = 0; vi < nm; vi++) {
+            Move *mv = &g_state.move_buf[bi + vi];
+            if (mv->from == result.best_move.from &&
+                mv->to == result.best_move.to) {
+                /* Also verify it doesn't leave king in check */
+                if (board_make_move(*mv)) {
+                    board_unmake_move(*mv);
+                    verified = 1;
+                    /* Use the movegen's copy (has correct flags) */
+                    result.best_move = *mv;
+                    break;
+                }
+            }
+        }
+        if (verified) {
+            uci_format_move(result.best_move, move_str);
+            if (dbg_file) {
+                char fen[128];
+                board_get_fen(fen);
+                fprintf(dbg_file, "BESTMOVE_OK: %s from=%02x to=%02x flags=%02x fen=%s\n",
+                        move_str, result.best_move.from, result.best_move.to,
+                        result.best_move.flags, fen);
+                fflush(dbg_file);
+            }
+            printf("bestmove %s\n", move_str);
+        } else {
+            /* Bestmove was illegal - find any legal move as fallback */
+            if (dbg_file) {
+                char fen[128];
+                board_get_fen(fen);
+                fprintf(dbg_file, "BESTMOVE_FAIL: search_from=%02x search_to=%02x fen=%s\n",
+                        result.best_move.from, result.best_move.to, fen);
+                fflush(dbg_file);
+            }
+            for (vi = 0; vi < nm; vi++) {
+                Move *mv = &g_state.move_buf[bi + vi];
+                if (board_make_move(*mv)) {
+                    board_unmake_move(*mv);
+                    uci_format_move(*mv, move_str);
+                    if (dbg_file) {
+                        fprintf(dbg_file, "BESTMOVE_FALLBACK: %s\n", move_str);
+                        fflush(dbg_file);
+                    }
+                    printf("bestmove %s\n", move_str);
+                    verified = 1;
+                    break;
+                }
+            }
+            if (!verified) {
+                printf("bestmove 0000\n");
+            }
+        }
     }
     fflush(stdout);
 }

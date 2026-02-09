@@ -67,7 +67,7 @@ void test_board(void) {
     /* Test 8: Make/unmake preserves hash */
     board_init();
     {
-        u16 hash_before = g_state.hash;
+        HashKey hash_before = g_state.hash;
         Move m;
         m.from = SQ_MAKE(1, 4); /* e2 */
         m.to = SQ_MAKE(3, 4);   /* e4 */
