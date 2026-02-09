@@ -28,8 +28,7 @@ void test_board(void) {
     board_init();
     board_get_fen(fen_buf);
     TEST_ASSERT(
-        strncmp(fen_buf, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
-                54) == 0,
+        strcmp(fen_buf, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") == 0,
         "Starting position FEN round-trip"
     );
 

@@ -2,8 +2,11 @@
 # cc65 for C64, gcc for PC
 
 # --- Tool paths (override on command line if needed) ---
+# w64devkit provides a self-contained gcc at C:\w64devkit\bin
 CC65    ?= cl65
 CC      ?= gcc
+W64DEV  = C:/w64devkit/bin
+export PATH := $(W64DEV):$(PATH)
 
 # --- Directories ---
 SRCDIR  = src

@@ -64,6 +64,7 @@ static s16 quiescence(s16 alpha, s16 beta, u8 ply) {
     u16 num_moves, i, base_idx;
 
     if (g_search_info.stopped) return 0;
+    if (ply >= MAX_PLY - 2) return eval_position();
     g_search_info.nodes++;
 
     /* Stand-pat: use static eval as lower bound */
@@ -121,6 +122,9 @@ static s16 negamax(s16 alpha, s16 beta, u8 depth, u8 ply, u8 do_null) {
 
     if (g_search_info.stopped) return 0;
 
+    /* Ply limit to prevent stack overflow */
+    if (ply >= MAX_PLY - 2) return eval_position();
+
     /* Check for draw by repetition or fifty-move rule */
     if (ply > 0 && (board_is_repetition() || g_state.fifty_clock >= 100)) {
         return SCORE_DRAW;
@@ -154,8 +158,8 @@ static s16 negamax(s16 alpha, s16 beta, u8 depth, u8 ply, u8 do_null) {
 
     in_check = board_in_check();
 
-    /* Check extension: search one deeper when in check */
-    if (in_check) {
+    /* Check extension: search one deeper when in check (limit to avoid explosion) */
+    if (in_check && ply < g_search_info.max_depth * 2) {
         depth++;
     }
 
@@ -163,12 +167,13 @@ static s16 negamax(s16 alpha, s16 beta, u8 depth, u8 ply, u8 do_null) {
      * If we can give the opponent a free move and still get a beta cutoff,
      * this position is probably too good to bother searching fully.
      * Skip when: in check, at low depth, or in endgame (zugzwang risk). */
-    if (do_null && !in_check && depth >= 3 && !eval_is_endgame()) {
+    if (do_null && !in_check && depth >= 4 && !eval_is_endgame()) {
         u8 R = 3; /* reduction */
         if (depth > 6) R = 4;
+        /* Ensure depth - 1 - R doesn't underflow (u8) */
 
         board_make_null();
-        score = -negamax(-beta, -beta + 1, depth - 1 - R, ply + 1, 0);
+        score = -negamax(-beta, -beta + 1, (u8)(depth - 1 - R), ply + 1, 0);
         board_unmake_null();
 
         if (g_search_info.stopped) return 0;

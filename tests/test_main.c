@@ -14,10 +14,10 @@
 #include "../src/tt.h"
 #include "../src/tables.h"
 
-/* Test counters */
-static int tests_run = 0;
-static int tests_passed = 0;
-static int tests_failed = 0;
+/* Test counters (accessed by test_board.c, test_movegen.c, test_search.c) */
+int tests_run = 0;
+int tests_passed = 0;
+int tests_failed = 0;
 
 #define TEST_ASSERT(cond, msg) do { \
     tests_run++; \
