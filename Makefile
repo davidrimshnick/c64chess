@@ -22,6 +22,10 @@ COMMON_SRC = $(SRCDIR)/board.c $(SRCDIR)/movegen.c $(SRCDIR)/search.c \
 
 C64_SRC    = $(COMMON_SRC) $(SRCDIR)/main.c $(C64DIR)/ui.c $(C64DIR)/platform.c
 PC_SRC     = $(COMMON_SRC) $(SRCDIR)/main.c $(UCIDIR)/uci.c
+MCTS_SRC   = $(SRCDIR)/board.c $(SRCDIR)/movegen.c $(SRCDIR)/search.c \
+             $(SRCDIR)/tables.c $(SRCDIR)/tt.c $(SRCDIR)/eval.c \
+             $(SRCDIR)/movesort.c $(SRCDIR)/mcts.c $(SRCDIR)/mcts_main.c \
+             $(UCIDIR)/uci.c
 TEST_SRC   = $(COMMON_SRC) $(UCIDIR)/uci.c \
              $(TESTDIR)/test_main.c $(TESTDIR)/test_board.c \
              $(TESTDIR)/test_movegen.c $(TESTDIR)/test_search.c
@@ -35,9 +39,11 @@ PC_CFLAGS   = -O2 -Wall -Wextra -DTARGET_PC -I$(SRCDIR)
 TEST_CFLAGS = -O0 -g -Wall -Wextra -DTARGET_PC -DTARGET_TEST -I$(SRCDIR) -I$(TESTDIR)
 
 # --- Targets ---
-.PHONY: all pc c64 test clean
+.PHONY: all pc c64 mcts test clean
 
 all: pc
+
+mcts: $(BUILDDIR)/mctslite.exe
 
 pc: $(BUILDDIR)/c64chess.exe
 
@@ -52,6 +58,10 @@ $(BUILDDIR):
 # PC build
 $(BUILDDIR)/c64chess.exe: $(PC_SRC) | $(BUILDDIR)
 	$(CC) $(PC_CFLAGS) -o $@ $(PC_SRC)
+
+# MCTS engine build
+$(BUILDDIR)/mctslite.exe: $(MCTS_SRC) | $(BUILDDIR)
+	$(CC) $(PC_CFLAGS) -o $@ $(MCTS_SRC) -lm
 
 # C64 build
 $(BUILDDIR)/c64chess.prg: $(C64_SRC) c64chess.cfg | $(BUILDDIR)
