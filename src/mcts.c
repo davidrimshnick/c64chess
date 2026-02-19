@@ -16,6 +16,8 @@ static float exploration_c = 1.414f; /* sqrt(2) */
 
 /* Simple xorshift32 PRNG */
 static u32 rng_state = 12345;
+static u32 external_seed = 0;
+static u32 search_counter = 0;
 
 static u32 xorshift32(void) {
     u32 x = rng_state;
@@ -28,6 +30,11 @@ static u32 xorshift32(void) {
 
 void mcts_set_exploration(float c) {
     exploration_c = c;
+}
+
+void mcts_set_seed(u32 seed) {
+    external_seed = seed;
+    search_counter = 0;
 }
 
 static u16 alloc_node(void) {
@@ -259,8 +266,9 @@ Move mcts_search(u32 num_simulations) {
     root_idx = alloc_node();
     if (root_idx == 0xFFFF) return best_move;
 
-    /* Seed PRNG with something varying */
-    rng_state = (u32)(g_state.hash) ^ (u32)num_simulations ^ 98765;
+    /* Seed PRNG - mix in external seed + counter for game-to-game variety */
+    search_counter++;
+    rng_state = (u32)(g_state.hash) ^ (u32)num_simulations ^ external_seed ^ search_counter;
 
     /* Save root position */
     snapshot_save(&root_snap);

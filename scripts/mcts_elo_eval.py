@@ -18,6 +18,7 @@ import os
 import math
 import time
 import re
+import random
 from collections import defaultdict
 
 
@@ -172,14 +173,21 @@ def run_match(engine1_path, engine2_path, e1_name, e2_name,
     draws = 0
 
     for game_num in range(num_games):
+        # Per-game random seed for MCTS PRNG diversity
+        game_seed = random.randint(1, 2**31 - 1)
+
         # Alternate who plays white
         if game_num % 2 == 0:
-            w_path, w_name, w_opts = engine1_path, e1_name, e1_options
-            b_path, b_name, b_opts = engine2_path, e2_name, e2_options
+            w_path, w_name = engine1_path, e1_name
+            w_opts = {**e1_options, "Seed": str(game_seed)}
+            b_path, b_name = engine2_path, e2_name
+            b_opts = {**e2_options, "Seed": str(game_seed)}
             e1_is_white = True
         else:
-            w_path, w_name, w_opts = engine2_path, e2_name, e2_options
-            b_path, b_name, b_opts = engine1_path, e1_name, e1_options
+            w_path, w_name = engine2_path, e2_name
+            w_opts = {**e2_options, "Seed": str(game_seed)}
+            b_path, b_name = engine1_path, e1_name
+            b_opts = {**e1_options, "Seed": str(game_seed)}
             e1_is_white = False
 
         white = UCIEngine(w_path, w_name, w_opts)
@@ -237,6 +245,10 @@ def main():
                         help="Comma-separated sim counts to test (default: 0,100,200,400,800)")
     parser.add_argument("--mcts-vs-mcts", action="store_true",
                         help="Also run MCTS vs MCTS at adjacent sim counts")
+    parser.add_argument("--mcts-vs-mcts-all", action="store_true",
+                        help="Run MCTS vs MCTS for ALL pairs of sim counts")
+    parser.add_argument("--skip-ab", action="store_true",
+                        help="Skip the MCTS vs alpha-beta matchups")
     args = parser.parse_args()
 
     if not os.path.exists(args.engine):
@@ -262,8 +274,13 @@ def main():
 
     results = {}
 
+    if args.skip_ab:
+        print("(Skipping MCTS vs Alpha-Beta matchups)\n")
+
     # MCTS vs Alpha-Beta at each sim count
     for sims in sim_counts:
+        if args.skip_ab:
+            continue
         mcts_name = f"MCTS-{sims}"
         ab_name = "C64Chess-AB"
 
@@ -285,11 +302,20 @@ def main():
         print(f"  Result: +{w} -{l} ={d}  Elo: {elo:+.0f} +/- {margin:.0f}")
         print()
 
-    # MCTS vs MCTS (adjacent sim counts)
+    # MCTS vs MCTS
     mcts_vs_mcts_results = {}
-    if args.mcts_vs_mcts and len(sim_counts) > 1:
-        for i in range(len(sim_counts) - 1):
-            s1, s2 = sim_counts[i], sim_counts[i + 1]
+    do_mcts_vs_mcts = (args.mcts_vs_mcts or args.mcts_vs_mcts_all) and len(sim_counts) > 1
+    if do_mcts_vs_mcts:
+        # Build list of matchup pairs
+        if args.mcts_vs_mcts_all:
+            pairs = [(sim_counts[i], sim_counts[j])
+                     for i in range(len(sim_counts))
+                     for j in range(i + 1, len(sim_counts))]
+        else:
+            pairs = [(sim_counts[i], sim_counts[i + 1])
+                     for i in range(len(sim_counts) - 1)]
+
+        for s1, s2 in pairs:
             name1, name2 = f"MCTS-{s1}", f"MCTS-{s2}"
 
             print(f"--- {name1} vs {name2} ({args.games} games) ---")
@@ -309,31 +335,43 @@ def main():
             print()
 
     # Summary table
-    print()
-    print("=" * 65)
-    print("SUMMARY: MCTSlite vs C64Chess Alpha-Beta")
-    print("=" * 65)
-    print(f"{'Sims':>6}  {'W':>4} {'L':>4} {'D':>4}  {'Score%':>7}  {'Elo':>8}  {'95% CI':>10}")
-    print("-" * 65)
-    for sims in sim_counts:
-        w, l, d, elo, margin = results[sims]
-        total = w + l + d
-        score_pct = (w + 0.5 * d) / total * 100 if total > 0 else 0
-        print(f"{sims:>6}  {w:>4} {l:>4} {d:>4}  {score_pct:>6.1f}%  {elo:>+7.0f}  +/- {margin:>5.0f}")
-    print("-" * 65)
+    if results:
+        print()
+        print("=" * 65)
+        print("SUMMARY: MCTSlite vs C64Chess Alpha-Beta")
+        print("=" * 65)
+        print(f"{'Sims':>6}  {'W':>4} {'L':>4} {'D':>4}  {'Score%':>7}  {'Elo':>8}  {'95% CI':>10}")
+        print("-" * 65)
+        for sims in sim_counts:
+            if sims not in results:
+                continue
+            w, l, d, elo, margin = results[sims]
+            total = w + l + d
+            score_pct = (w + 0.5 * d) / total * 100 if total > 0 else 0
+            print(f"{sims:>6}  {w:>4} {l:>4} {d:>4}  {score_pct:>6.1f}%  {elo:>+7.0f}  +/- {margin:>5.0f}")
+        print("-" * 65)
 
     if mcts_vs_mcts_results:
         print()
-        print("MCTS vs MCTS (scaling with simulation count):")
-        print(f"{'Matchup':>16}  {'W':>4} {'L':>4} {'D':>4}  {'Elo':>8}")
-        print("-" * 50)
+        print("=" * 65)
+        print("MCTS vs MCTS (scaling with simulation count)")
+        print("=" * 65)
+        print(f"{'Matchup':>16}  {'W':>4} {'L':>4} {'D':>4}  {'Score%':>7}  {'Elo':>8}  {'95% CI':>10}")
+        print("-" * 65)
         for (s1, s2), (w, l, d, elo, margin) in mcts_vs_mcts_results.items():
-            print(f"  {s1:>5} vs {s2:<5}  {w:>4} {l:>4} {d:>4}  {elo:>+7.0f}")
+            total = w + l + d
+            score_pct = (w + 0.5 * d) / total * 100 if total > 0 else 0
+            print(f"  {s1:>5} vs {s2:<5}  {w:>4} {l:>4} {d:>4}  {score_pct:>6.1f}%  {elo:>+7.0f}  +/- {margin:>5.0f}")
+        print("-" * 65)
+        print()
+        print("Note: Elo is from the LOWER sim count's perspective.")
+        print("Negative = fewer sims is weaker (expected).")
 
-    print()
-    print("Note: Elo is relative to C64Chess alpha-beta at "
-          f"movetime={args.movetime}ms")
-    print("Negative Elo = MCTS is weaker than alpha-beta.")
+    if results:
+        print()
+        print("Note: Elo vs AB is relative to C64Chess alpha-beta at "
+              f"movetime={args.movetime}ms")
+        print("Negative Elo = MCTS is weaker than alpha-beta.")
 
 
 if __name__ == "__main__":

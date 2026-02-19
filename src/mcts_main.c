@@ -162,6 +162,7 @@ static void mcts_uci_loop(void) {
             printf("id name MCTSlite\n");
             printf("id author C64Chess\n");
             printf("option name Simulations type spin default 800 min 0 max 100000\n");
+            printf("option name Seed type spin default 0 min 0 max 2147483647\n");
             printf("uciok\n");
             fflush(stdout);
         }
@@ -175,11 +176,16 @@ static void mcts_uci_loop(void) {
         else if (strncmp(line, "setoption", 9) == 0) {
             /* Parse "setoption name Simulations value N" */
             const char *p = strstr(line, "value");
-            if (p && strstr(line, "Simulations")) {
+            if (p) {
                 p += 5;
                 while (*p == ' ') p++;
-                num_simulations = (u32)atol(p);
-                fprintf(stderr, "MCTSlite: simulations = %u\n", (unsigned)num_simulations);
+                if (strstr(line, "Simulations")) {
+                    num_simulations = (u32)atol(p);
+                    fprintf(stderr, "MCTSlite: simulations = %u\n", (unsigned)num_simulations);
+                } else if (strstr(line, "Seed")) {
+                    mcts_set_seed((u32)atol(p));
+                    fprintf(stderr, "MCTSlite: seed = %u\n", (unsigned)atol(p));
+                }
             }
         }
         else if (strncmp(line, "position", 8) == 0) {

@@ -32,4 +32,7 @@ Move mcts_search(u32 num_simulations);
 /* Set exploration constant (default sqrt(2)) */
 void mcts_set_exploration(float c);
 
+/* Set external seed for PRNG (mixed into search seed for game-to-game variety) */
+void mcts_set_seed(u32 seed);
+
 #endif /* MCTS_H */
