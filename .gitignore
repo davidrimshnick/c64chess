@@ -20,3 +20,8 @@ Desktop.ini
 # Temporary
 *.bak
 *.tmp
+
+# Debug logs
+debug.log
+# Windows-path debug log artifact
+C?\\Users\\*
